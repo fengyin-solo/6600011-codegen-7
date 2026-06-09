@@ -34,14 +34,11 @@ export const FocusTrainingPanel: React.FC = () => {
   const {
     brainState,
     isFocusTraining,
-    focusTrainingPreset,
-    focusTrainingStartTime,
     focusTrainingSnapshots,
     focusTrainingSessions,
     focusTrainingResult,
     startFocusTraining,
     stopFocusTraining,
-    addFocusTrainingSnapshot,
     deleteFocusTrainingSession,
     computeFocusTrainingResult,
   } = useEEGStore();
@@ -56,11 +53,11 @@ export const FocusTrainingPanel: React.FC = () => {
   useEffect(() => {
     if (isFocusTraining) {
       timerRef.current = window.setInterval(() => {
-        const now = Date.now();
-        const e = (now - focusTrainingStartTime) / 1000;
+        const { focusTrainingStartTime, focusTrainingPreset } = useEEGStore.getState();
+        const e = (Date.now() - focusTrainingStartTime) / 1000;
         setElapsed(e);
         if (e >= focusTrainingPreset) {
-          stopFocusTraining();
+          useEEGStore.getState().stopFocusTraining();
         }
       }, 200);
     } else {
@@ -73,17 +70,13 @@ export const FocusTrainingPanel: React.FC = () => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isFocusTraining, focusTrainingStartTime, focusTrainingPreset]);
-
-  useEffect(() => {
-    if (isFocusTraining && brainState) {
-      addFocusTrainingSnapshot(brainState);
-    }
-  }, [isFocusTraining, brainState]);
+  }, [isFocusTraining]);
 
   useEffect(() => {
     if (!isFocusTraining && focusTrainingResult) {
+      const latest = [...useEEGStore.getState().focusTrainingSessions].pop();
       setResultData(focusTrainingResult);
+      setResultSessionId(latest?.id ?? null);
       setShowResult(true);
     }
   }, [isFocusTraining, focusTrainingResult]);
@@ -108,6 +101,7 @@ export const FocusTrainingPanel: React.FC = () => {
     }
   }, [focusTrainingSessions, computeFocusTrainingResult]);
 
+  const { focusTrainingPreset } = useEEGStore();
   const progress = isFocusTraining ? Math.min(100, (elapsed / focusTrainingPreset) * 100) : 0;
   const remaining = isFocusTraining ? Math.max(0, focusTrainingPreset - elapsed) : 0;
   const currentFocus = isFocusTraining && brainState ? brainState.focus : 0;

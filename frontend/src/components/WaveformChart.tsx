@@ -138,6 +138,9 @@ export const WaveformChart: React.FC = () => {
     if (state.isRecording) {
       state.addRecordingFrame(eeg, bands, brainState);
     }
+    if (state.isFocusTraining) {
+      state.addFocusTrainingSnapshot(brainState);
+    }
     setLoading(false);
   };
 
