@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { EEGData, BandPower, BrainState, CorrelationData, Recording, RecordingFrame, PlaybackState } from '../types';
+import { EEGData, BandPower, BrainState, CorrelationData, Recording, RecordingFrame, PlaybackState, FocusTrainingSession, FocusTrainingSnapshot, FocusTrainingResult } from '../types';
 
 const STORAGE_KEY = 'eeg_recordings';
+const TRAINING_STORAGE_KEY = 'eeg_focus_trainings';
 
 const loadRecordings = (): Recording[] => {
   try {
@@ -16,6 +17,49 @@ const saveRecordings = (recordings: Recording[]) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(recordings));
   } catch {}
+};
+
+const loadTrainings = (): FocusTrainingSession[] => {
+  try {
+    const stored = localStorage.getItem(TRAINING_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveTrainings = (trainings: FocusTrainingSession[]) => {
+  try {
+    localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(trainings));
+  } catch {}
+};
+
+const computeTrainingResult = (session: FocusTrainingSession): FocusTrainingResult => {
+  const { snapshots } = session;
+  if (snapshots.length === 0) {
+    return { averageFocus: 0, maxFocus: 0, minFocus: 0, focusRatio: 0, averageRelaxation: 0, averageFatigue: 0, stability: 0, grade: '-', gradeColor: '#999' };
+  }
+  const focusValues = snapshots.map(s => s.focus);
+  const relaxationValues = snapshots.map(s => s.relaxation);
+  const fatigueValues = snapshots.map(s => s.fatigue);
+  const averageFocus = focusValues.reduce((a, b) => a + b, 0) / focusValues.length;
+  const maxFocus = Math.max(...focusValues);
+  const minFocus = Math.min(...focusValues);
+  const focusRatio = focusValues.filter(v => v >= 60).length / focusValues.length;
+  const averageRelaxation = relaxationValues.reduce((a, b) => a + b, 0) / relaxationValues.length;
+  const averageFatigue = fatigueValues.reduce((a, b) => a + b, 0) / fatigueValues.length;
+  const mean = averageFocus;
+  const variance = focusValues.reduce((sum, v) => sum + (v - mean) ** 2, 0) / focusValues.length;
+  const stdDev = Math.sqrt(variance);
+  const stability = Math.max(0, Math.min(100, 100 - stdDev * 2));
+  let grade: string;
+  let gradeColor: string;
+  if (averageFocus >= 80 && focusRatio >= 0.8) { grade = 'S'; gradeColor = '#ff6f00'; }
+  else if (averageFocus >= 70 && focusRatio >= 0.6) { grade = 'A'; gradeColor = '#d32f2f'; }
+  else if (averageFocus >= 60 && focusRatio >= 0.4) { grade = 'B'; gradeColor = '#1565c0'; }
+  else if (averageFocus >= 50) { grade = 'C'; gradeColor = '#388e3c'; }
+  else { grade = 'D'; gradeColor = '#757575'; }
+  return { averageFocus: Math.round(averageFocus * 10) / 10, maxFocus: Math.round(maxFocus * 10) / 10, minFocus: Math.round(minFocus * 10) / 10, focusRatio: Math.round(focusRatio * 1000) / 10, averageRelaxation: Math.round(averageRelaxation * 10) / 10, averageFatigue: Math.round(averageFatigue * 10) / 10, stability: Math.round(stability * 10) / 10, grade, gradeColor };
 };
 
 interface EEGState {
@@ -47,6 +91,17 @@ interface EEGState {
   setPlaybackTime: (time: number) => void;
   togglePlayback: () => void;
   setPlaybackPlaying: (playing: boolean) => void;
+  isFocusTraining: boolean;
+  focusTrainingPreset: number;
+  focusTrainingStartTime: number;
+  focusTrainingSnapshots: FocusTrainingSnapshot[];
+  focusTrainingSessions: FocusTrainingSession[];
+  focusTrainingResult: FocusTrainingResult | null;
+  startFocusTraining: (durationSeconds: number) => void;
+  stopFocusTraining: () => void;
+  addFocusTrainingSnapshot: (brainState: BrainState) => void;
+  deleteFocusTrainingSession: (id: string) => void;
+  computeFocusTrainingResult: (session: FocusTrainingSession) => FocusTrainingResult;
 }
 
 export const useEEGStore = create<EEGState>((set, get) => ({
@@ -67,6 +122,12 @@ export const useEEGStore = create<EEGState>((set, get) => ({
     currentTime: 0,
     currentFrame: null,
   },
+  isFocusTraining: false,
+  focusTrainingPreset: 0,
+  focusTrainingStartTime: 0,
+  focusTrainingSnapshots: [],
+  focusTrainingSessions: loadTrainings(),
+  focusTrainingResult: null,
   setEEGData: (d) => set({ eegData: d }),
   setChannel: (c) => set({ selectedChannel: c }),
   setBandPower: (b) => set({ bandPower: b }),
@@ -192,5 +253,61 @@ export const useEEGStore = create<EEGState>((set, get) => ({
         isPlaying: playing,
       },
     });
+  },
+  startFocusTraining: (durationSeconds) => {
+    set({
+      isFocusTraining: true,
+      focusTrainingPreset: durationSeconds,
+      focusTrainingStartTime: Date.now(),
+      focusTrainingSnapshots: [],
+      focusTrainingResult: null,
+    });
+  },
+  stopFocusTraining: () => {
+    const { focusTrainingSnapshots, focusTrainingStartTime, focusTrainingPreset, selectedChannel, focusTrainingSessions } = get();
+    const endTime = Date.now();
+    const actualDuration = (endTime - focusTrainingStartTime) / 1000;
+    const session: FocusTrainingSession = {
+      id: `train_${endTime}`,
+      channel: selectedChannel,
+      presetDuration: focusTrainingPreset,
+      startTime: focusTrainingStartTime,
+      endTime,
+      actualDuration,
+      snapshots: focusTrainingSnapshots,
+      completed: actualDuration >= focusTrainingPreset * 0.9,
+    };
+    const result = computeTrainingResult(session);
+    const sessions = [...focusTrainingSessions, session];
+    saveTrainings(sessions);
+    set({
+      isFocusTraining: false,
+      focusTrainingPreset: 0,
+      focusTrainingStartTime: 0,
+      focusTrainingSnapshots: [],
+      focusTrainingSessions: sessions,
+      focusTrainingResult: result,
+    });
+  },
+  addFocusTrainingSnapshot: (brainState) => {
+    const { isFocusTraining, focusTrainingStartTime, focusTrainingSnapshots } = get();
+    if (!isFocusTraining) return;
+    const relativeTime = (Date.now() - focusTrainingStartTime) / 1000;
+    const snapshot: FocusTrainingSnapshot = {
+      relativeTime,
+      focus: brainState.focus,
+      relaxation: brainState.relaxation,
+      fatigue: brainState.fatigue,
+      status: brainState.status,
+    };
+    set({ focusTrainingSnapshots: [...focusTrainingSnapshots, snapshot] });
+  },
+  deleteFocusTrainingSession: (id) => {
+    const sessions = get().focusTrainingSessions.filter(s => s.id !== id);
+    saveTrainings(sessions);
+    set({ focusTrainingSessions: sessions });
+  },
+  computeFocusTrainingResult: (session) => {
+    return computeTrainingResult(session);
   },
 }));

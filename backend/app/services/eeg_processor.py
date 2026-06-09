@@ -86,3 +86,43 @@ def compute_correlation(target_channel: str, all_data: dict, sample_rate: int) -
             'coherence': round(mean_coh, 4)
         })
     return {'targetChannel': target_channel, 'correlations': correlations}
+
+def evaluate_focus_training(snapshots: list, preset_duration: float) -> dict:
+    if not snapshots:
+        return {
+            'averageFocus': 0, 'maxFocus': 0, 'minFocus': 0,
+            'focusRatio': 0, 'averageRelaxation': 0, 'averageFatigue': 0,
+            'stability': 0, 'grade': '-', 'gradeColor': '#999'
+        }
+    focus_values = [s['focus'] for s in snapshots]
+    relaxation_values = [s['relaxation'] for s in snapshots]
+    fatigue_values = [s['fatigue'] for s in snapshots]
+    avg_focus = float(np.mean(focus_values))
+    max_focus = float(np.max(focus_values))
+    min_focus = float(np.min(focus_values))
+    focus_ratio = float(np.mean([1 for v in focus_values if v >= 60]))
+    avg_relaxation = float(np.mean(relaxation_values))
+    avg_fatigue = float(np.mean(fatigue_values))
+    std_dev = float(np.std(focus_values))
+    stability = max(0.0, min(100.0, 100 - std_dev * 2))
+    if avg_focus >= 80 and focus_ratio >= 0.8:
+        grade, grade_color = 'S', '#ff6f00'
+    elif avg_focus >= 70 and focus_ratio >= 0.6:
+        grade, grade_color = 'A', '#d32f2f'
+    elif avg_focus >= 60 and focus_ratio >= 0.4:
+        grade, grade_color = 'B', '#1565c0'
+    elif avg_focus >= 50:
+        grade, grade_color = 'C', '#388e3c'
+    else:
+        grade, grade_color = 'D', '#757575'
+    return {
+        'averageFocus': round(avg_focus, 1),
+        'maxFocus': round(max_focus, 1),
+        'minFocus': round(min_focus, 1),
+        'focusRatio': round(focus_ratio * 100, 1),
+        'averageRelaxation': round(avg_relaxation, 1),
+        'averageFatigue': round(avg_fatigue, 1),
+        'stability': round(stability, 1),
+        'grade': grade,
+        'gradeColor': grade_color
+    }

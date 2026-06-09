@@ -42,3 +42,34 @@ export interface PlaybackState {
   currentTime: number;
   currentFrame: RecordingFrame | null;
 }
+
+export interface FocusTrainingSnapshot {
+  relativeTime: number;
+  focus: number;
+  relaxation: number;
+  fatigue: number;
+  status: BrainState['status'];
+}
+
+export interface FocusTrainingSession {
+  id: string;
+  channel: string;
+  presetDuration: number;
+  startTime: number;
+  endTime: number;
+  actualDuration: number;
+  snapshots: FocusTrainingSnapshot[];
+  completed: boolean;
+}
+
+export interface FocusTrainingResult {
+  averageFocus: number;
+  maxFocus: number;
+  minFocus: number;
+  focusRatio: number;
+  averageRelaxation: number;
+  averageFatigue: number;
+  stability: number;
+  grade: string;
+  gradeColor: string;
+}

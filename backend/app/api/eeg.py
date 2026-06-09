@@ -1,5 +1,7 @@
 from fastapi import APIRouter
-from ..services.eeg_processor import generate_mock_eeg, compute_band_power, compute_spectrogram, compute_brain_state, compute_correlation, SAMPLE_RATE
+from pydantic import BaseModel
+from typing import List
+from ..services.eeg_processor import generate_mock_eeg, compute_band_power, compute_spectrogram, compute_brain_state, compute_correlation, SAMPLE_RATE, evaluate_focus_training
 
 router = APIRouter(prefix="/eeg", tags=["eeg"])
 
@@ -53,3 +55,20 @@ async def full_sample(channel: str, duration: float = 3.0):
         'brainState': compute_brain_state(channel_data, SAMPLE_RATE),
         'correlation': compute_correlation(channel, data['data'], SAMPLE_RATE)
     }
+
+class SnapshotItem(BaseModel):
+    relativeTime: float
+    focus: float
+    relaxation: float
+    fatigue: float
+    status: str
+
+class TrainingEvalRequest(BaseModel):
+    channel: str
+    presetDuration: float
+    snapshots: List[SnapshotItem]
+
+@router.post("/training/evaluate")
+async def evaluate_training(req: TrainingEvalRequest):
+    snapshots = [{'relativeTime': s.relativeTime, 'focus': s.focus, 'relaxation': s.relaxation, 'fatigue': s.fatigue, 'status': s.status} for s in req.snapshots]
+    return evaluate_focus_training(snapshots, req.presetDuration)
